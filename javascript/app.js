@@ -1,5 +1,5 @@
-require(["editor", "jquery", "database", "renderer", "grapnel"],
-  function (editor, $, db, renderer, Grapnel) {
+require(["editor", "jquery", "database", "renderer", "grapnel", "analytics"],
+  function (editor, $, db, renderer, Grapnel, ga) {
 
     var bar = $('#editor-bar');
 
@@ -25,7 +25,7 @@ require(["editor", "jquery", "database", "renderer", "grapnel"],
 
     var router =  new Grapnel();
     router.add("/", function() {
-      editor.contents("digraph example {\n\t\n}");
+      editor.contents("digraph G {\n\t\n}");
     }).add("/save", editor.middleware.source, db.middleware.save, db.middleware.update, function(req) {
       router.navigate('/' + req.params.fiddle);
     }).add("/update", middleware.document, editor.middleware.source, db.middleware.extract, db.middleware.update, function(req) {
@@ -40,6 +40,8 @@ require(["editor", "jquery", "database", "renderer", "grapnel"],
         var clazz = e.previousState.req.keys.length>0 ? e.previousState.req.keys[0].name : e.previousState.route.replace('/','');
         clazz = clazz || 'home';
         $('body').removeClass().addClass(clazz);
+        ga('send', 'pageview', e.value);
+        e.stopPropagation();
       }
     });
   }
