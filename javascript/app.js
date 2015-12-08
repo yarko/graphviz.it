@@ -18,6 +18,13 @@ require(["editor", "jquery", "database", "renderer", "grapnel", "analytics", "ga
       document: function(req, event, next) {
         req.document = document;
         next();
+      },
+      image: function(req, event, next) {
+        var img = renderer.getImage();
+        img.onload = function () {
+          req.image = img.src;
+          next();
+        }
       }
     };
 
@@ -35,6 +42,15 @@ require(["editor", "jquery", "database", "renderer", "grapnel", "analytics", "ga
         .append("<option>" + e + "</option>");
     });
 
+    $("#savePNG").click(function(event) {
+      var img = renderer.getImage();
+      img.onload = function () {
+        $("#download").attr("href", img.src);
+        $("#download")[0].click();
+      };
+      event.preventDefault();
+    });
+
     var router =  new Grapnel();
     router.add("/", function() {
       editor.contents("digraph G {\n  ex -> am -> ple\n}");
@@ -45,7 +61,7 @@ require(["editor", "jquery", "database", "renderer", "grapnel", "analytics", "ga
     }).add("/fork", middleware.document, editor.middleware.source, db.middleware.save, db.middleware.update, function(req) {
       router.navigate('/' + req.params.fiddle);
     }).add("/update", middleware.document, editor.middleware.source, db.middleware.extract, db.middleware.update, function(req) {
-      router.navigate("/" + [req.params.fiddle, req.params.attachment].join('/'));
+        router.navigate("/" + [req.params.fiddle, req.params.attachment].join('/'));
     }).add("/gallery", function() {
       router.navigate('/gallery/' + gallery.random());
     }).add("/gallery/:gallery", gallery.middleware.load, function(req) {
@@ -64,7 +80,8 @@ require(["editor", "jquery", "database", "renderer", "grapnel", "analytics", "ga
         $('body').removeClass().addClass(clazz);
         var state = transitions[clazz];
         if (state!=undefined) {
-          $('#button').text(state + " diagram").attr("href", "#/" + state.toLowerCase());
+          $('#button').attr("href", "#/" + state.toLowerCase());
+          $('#button span').text(state + " diagram");
         }
         ga('send', 'pageview', e.value);
         e.stopPropagation();
