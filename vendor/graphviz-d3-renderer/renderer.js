@@ -55,86 +55,96 @@ define('palette',[],function () {
 });
 define('transitions/default',[], function() {
   return {
-    stage: function (svg, canvas) {
+    document: function(selection, attributer) {
+      selection
+        .transition()
+        .delay(150)
+        .duration(700)
+        .call(attributer);
+    },
+    canvas: function (selection, attributer) {
+      selection
+        .transition()
+        .delay(150)
+        .duration(900)
+        .call(attributer);
+    },
+    nodes: function (selection, attributer) {
+      selection
+        .style("opacity", 0.0)
+        .transition()
+        .delay(150)
+        .duration(900)
+        .call(attributer);
+    },
+    relations: function (selection, attributer) {
+      selection
+        .style("opacity", 0.0)
+        .transition()
+        .delay(150)
+        .duration(900)
+        .call(attributer);
+    },
+    exits: function (selection, attributer) {
+      selection
+        .transition()
+        .duration(100)
+        .style("opacity", 0.0)
+        .call(attributer);
+    },
+    shapes: function (shapes, attributer) {
+      shapes
+        .transition()
+        .delay(150)
+        .duration(900)
+        .call(attributer);
+    },
+    labels: function (labels, attributer) {
+      labels
+        .transition()
+        .delay(150)
+        .duration(900)
+        .call(attributer);
+    }
+  };
+});
+define('stage',["d3", "palette", "transitions/default"], function (d3, palette, defaults) {
+    var svg, main;
+    var order = {
+      digraph: 0,
+      subgraph: 1,
+      node: 2,
+      relation: 3
+    };
+    var transitions = defaults;
+
+    function calculateSizes(main) {
       var margin = 4,
-        boundingWidth = canvas.shapes[0].points[2][0] + margin*2,
-        boundingHeight = canvas.shapes[0].points[2][1] + margin*2,
-        htranslate = canvas.shapes[0].points[2][1] + margin,
+        boundingWidth = main.shapes[0].points[2][0] + margin*2,
+        boundingHeight = main.shapes[0].points[2][1] + margin*2,
+        htranslate = main.shapes[0].points[2][1] + margin,
         vtranslate = margin,
-        size = canvas.size || [boundingWidth, boundingHeight];
+        size = main.size || [boundingWidth, boundingHeight];
       var oversized = boundingWidth > size[0] || boundingHeight > size[1];
       var scaleWidth = oversized ? size[0] / boundingWidth : 1;
       var scaleHeight = oversized ? size[1] / boundingHeight : 1;
       var ratio = scaleHeight > scaleWidth ? scaleHeight = scaleWidth : scaleWidth = scaleHeight;
       var height = boundingHeight * ratio;
       var width = boundingWidth * ratio;
-      var area = [0, 0, width, height];
 
-      svg
-        .transition()
-        .delay(150)
-        .duration(700)
-        .attr("width", width + "pt")
-        .attr("height", height + "pt")
-        .attr("viewBox", area.join(' '))
-        .select("g")
-        .attr("transform", "scale(" + scaleWidth + " " + scaleHeight + ")" + " " + "translate(" + vtranslate + "," + htranslate + ")");
+      return {
+        width: width,
+        height: height,
+        htranslate: htranslate,
+        vtranslate: vtranslate,
+        scaleWidth: scaleWidth,
+        scaleHeight: scaleHeight,
+        style: main.shapes[0].style
+      };
+    }
 
-      var polygon = svg.select("polygon");
-      polygon
-        .transition()
-        .delay(150)
-        .duration(900)
-        .attr("points", function () {
-          return [[0,0],[0,height],[width,height],[width,0]]
-            .map(function (e) {
-              return e.join(",");
-            }).join(" ");
-        });
-      canvas.shapes[0].style.forEach(function(e) {
-        polygon.style(e.key, e.value);
-      });
-    },
-    nodes: function (nodes) {
-      nodes.style("opacity", 0.0)
-        .transition()
-        .delay(150)
-        .duration(900)
-        .style("opacity", 1.0);
-    },
-    relations: function (relations) {
-      relations.style("opacity", 0.0)
-        .transition()
-        .delay(150)
-        .duration(900)
-        .style("opacity", 1.0);
-    },
-    exits: function (exits) {
-      exits.transition()
-        .duration(100)
-        .style("opacity", 0.0)
-        .remove();
-    },
-    shapes: function (shapes, palette) {
-      shapes
-        .transition()
-        .delay(150)
-        .duration(900)
-        .attr("d", function (d) {
-          var shape = d.shape;
-          return palette[shape](d);
-        })
-        .attr("style", function (d) {
-          return d.style.map(function (e) {
-            return [e.key, e.value].join(':');
-          }).join(';');
-        });
-    },
-    labels: function (labels) {
-      labels
-        .transition()
-        .delay(150)
-        .duration(900)
+    var labelAttributer = function() {
+      this
         .attr("x", function (d) {
           return d.x;
         })
@@ -151,18 +161,7 @@ define('transitions/default',[], function() {
         .text(function (d) {
           return d.text;
         });
-    }
-  };
-});
-define('stage',["d3", "palette", "transitions/default"], function (d3, palette, defaults) {
-    var svg, main;
-    var order = {
-      digraph: 0,
-      subgraph: 1,
-      node: 2,
-      relation: 3
     };
-    var transitions = defaults;
 
     return {
       init: function (element) {
@@ -175,10 +174,10 @@ define('stage',["d3", "palette", "transitions/default"], function (d3, palette, 
         svg.append("polygon").attr("stroke", "none");
         main = svg.append("g");
       },
-      svg: function() {
+      svg: function () {
         return svg.node().parentNode.innerHTML;
       },
-      transitions: function(custom) {
+      transitions: function (custom) {
         if (custom) {
           transitions = custom;
         } else {
@@ -186,27 +185,63 @@ define('stage',["d3", "palette", "transitions/default"], function (d3, palette, 
         }
       },
       draw: function (stage) {
+        var sizes = calculateSizes(stage.main);
+        var area = [0, 0, sizes.width, sizes.height];
 
-        transitions.stage(svg, stage.main);
+        transitions.document(svg, function() {
+          this
+            .attr("width", sizes.width + "pt")
+            .attr("height", sizes.height + "pt")
+            .attr("viewBox", area.join(' '))
+            .select("g")
+            .attr("transform", "scale(" + sizes.scaleWidth + " " + sizes.scaleHeight + ")" +
+              " " + "translate(" + sizes.vtranslate + "," + sizes.htranslate + ")");
+        });
+
+        var polygon = svg.select("polygon");
+        transitions.canvas(polygon, function() {
+          this
+            .attr("points", function () {
+              return [[0,0],[0,sizes.height],[sizes.width,sizes.height],[sizes.width,0]]
+                .map(function (e) {
+                  return e.join(",");
+                }).join(" ");
+            });
+          var self = this;
+          sizes.style.forEach(function(e) {
+            self.style(e.key, e.value);
+          });
+        });
+
+        var label = main.selectAll("text")
+          .data(stage.main.labels);
+        label.enter().append("text");
+        transitions.labels(label, labelAttributer);
 
         var groups = main.selectAll("g")
-        .data(stage.groups, function (d) {
-          return d.id;
-        });
+          .data(stage.groups, function (d) {
+            return d.id;
+          });
         var entering = groups.enter()
-        .append("g").attr("class", function (d) {
-          return d.class;
-        });
+          .append("g").attr("class", function (d) {
+            return d.class;
+          });
         entering.append("title").text(function (d) {
           return d.id;
         });
 
-        transitions.nodes(entering.filter(".node"));
-        transitions.relations(entering.filter(".relation"));
-        transitions.exits(groups.exit());
+        transitions.nodes(entering.filter(".node"), function() {
+          this.style("opacity", 1.0);
+        });
+        transitions.relations(entering.filter(".relation"), function() {
+          this.style("opacity", 1.0);
+        });
+        transitions.exits(groups.exit(), function() {
+          this.remove();
+        });
 
-        groups.sort(function(a,b){
-          return order[a.class]- order[b.class];
+        groups.sort(function (a, b) {
+          return order[a.class] - order[b.class];
         });
 
         var shapes = groups.selectAll("path").data(function (d) {
@@ -216,13 +251,24 @@ define('stage',["d3", "palette", "transitions/default"], function (d3, palette, 
           }
         );
         shapes.enter().append("path");
-        transitions.shapes(shapes, palette);
+        transitions.shapes(shapes, function() {
+          this
+            .attr("d", function (d) {
+              var shape = d.shape;
+              return palette[shape](d);
+            })
+            .attr("style", function (d) {
+              return d.style.map(function (e) {
+                return [e.key, e.value].join(':');
+              }).join(';');
+            });
+        });
 
         var labels = groups.selectAll("text").data(function (d) {
           return d.labels;
         });
         labels.enter().append("text");
-        transitions.labels(labels);
+        transitions.labels(labels, labelAttributer);
       }
     };
   }
