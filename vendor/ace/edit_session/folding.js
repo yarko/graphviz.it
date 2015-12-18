@@ -696,7 +696,8 @@ function Folding() {
             
         this.$foldMode = foldMode;
         
-        this.removeListener('change', this.$updateFoldWidgets);
+        this.off('change', this.$updateFoldWidgets);
+        this.off('tokenizerUpdate', this.$tokenizerUpdateFoldWidgets);
         this._emit("changeAnnotation");
         
         if (!foldMode || this.$foldStyle == "manual") {
@@ -709,8 +710,9 @@ function Folding() {
         this.getFoldWidgetRange = foldMode.getFoldWidgetRange.bind(foldMode, this, this.$foldStyle);
         
         this.$updateFoldWidgets = this.updateFoldWidgets.bind(this);
+        this.$tokenizerUpdateFoldWidgets = this.tokenizerUpdateFoldWidgets.bind(this);
         this.on('change', this.$updateFoldWidgets);
-        
+        this.on('tokenizerUpdate', this.$tokenizerUpdateFoldWidgets);
     };
 
     this.getParentFoldRangeData = function (row, ignoreCurrent) {
@@ -792,7 +794,7 @@ function Folding() {
             this.foldAll(startRow, endRow, options.all ? 10000 : 0);
         } else if (options.children) {
             endRow = range ? range.end.row : this.getLength();
-            this.foldAll(row + 1, range.end.row, options.all ? 10000 : 0);
+            this.foldAll(row + 1, endRow, options.all ? 10000 : 0);
         } else if (range) {
             if (options.all) 
                 range.collapseChildren = 10000;
@@ -843,7 +845,13 @@ function Folding() {
             this.foldWidgets.splice.apply(this.foldWidgets, args);
         }
     };
-
+    this.tokenizerUpdateFoldWidgets = function(e) {
+        var rows = e.data;
+        if (rows.first != rows.last) {
+            if (this.foldWidgets.length > rows.first)
+                this.foldWidgets.splice(rows.first, this.foldWidgets.length);
+        }
+    }
 }
 
 exports.Folding = Folding;

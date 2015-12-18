@@ -55,6 +55,24 @@ oop.inherits(PhpMode, TextMode);
 
 (function() {
 
+    this.tokenRe = new RegExp("^["
+        + unicode.packages.L
+        + unicode.packages.Mn + unicode.packages.Mc
+        + unicode.packages.Nd
+        + unicode.packages.Pc + "\_]+", "g"
+    );
+
+    this.nonTokenRe = new RegExp("^(?:[^"
+        + unicode.packages.L
+        + unicode.packages.Mn + unicode.packages.Mc
+        + unicode.packages.Nd
+        + unicode.packages.Pc + "\_]|\s])+", "g"
+    );
+
+
+    this.lineCommentStart = ["//", "#"];
+    this.blockComment = {start: "/*", end: "*/"};
+
     this.getNextLineIndent = function(state, line, tab) {
         var indent = this.$getIndent(line);
 
@@ -100,8 +118,10 @@ oop.inherits(PhpMode, TextMode);
 
 var Mode = function(opts) {
     if (opts && opts.inline) {
-        PhpMode.call(this);
-        return;
+        var mode = new PhpMode();
+        mode.createWorker = this.createWorker;
+        mode.inlinePhp = true;
+        return mode;
     }
     HtmlMode.call(this);
     this.HighlightRules = PhpHighlightRules;
@@ -110,28 +130,11 @@ var Mode = function(opts) {
         "css-": CssMode,
         "php-": PhpMode
     });
+    this.foldingRules.subModes["php-"] = new CStyleFoldMode();
 };
 oop.inherits(Mode, HtmlMode);
 
 (function() {
-
-    this.tokenRe = new RegExp("^["
-        + unicode.packages.L
-        + unicode.packages.Mn + unicode.packages.Mc
-        + unicode.packages.Nd
-        + unicode.packages.Pc + "\_]+", "g"
-    );
-
-    this.nonTokenRe = new RegExp("^(?:[^"
-        + unicode.packages.L
-        + unicode.packages.Mn + unicode.packages.Mc
-        + unicode.packages.Nd
-        + unicode.packages.Pc + "\_]|\s])+", "g"
-    );
-
-
-    this.lineCommentStart = ["//", "#"];
-    this.blockComment = {start: "/*", end: "*/"};
 
     this.createWorker = function(session) {
         var worker = new WorkerClient(["ace"], "ace/mode/php_worker", "PhpWorker");
@@ -140,11 +143,11 @@ oop.inherits(Mode, HtmlMode);
         if (this.inlinePhp)
             worker.call("setOptions", [{inline: true}]);
 
-        worker.on("error", function(e) {
+        worker.on("annotate", function(e) {
             session.setAnnotations(e.data);
         });
 
-        worker.on("ok", function() {
+        worker.on("terminate", function() {
             session.clearAnnotations();
         });
 

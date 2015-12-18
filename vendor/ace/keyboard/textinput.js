@@ -45,13 +45,13 @@ var TextInput = function(parentNode, host) {
     if (useragent.isTouchPad)
         text.setAttribute("x-palm-disable-auto-cap", true);
 
-    text.wrap = "off";
-    text.autocorrect = "off";
-    text.autocapitalize = "off";
-    text.spellcheck = false;
+    text.setAttribute("wrap", "off");
+    text.setAttribute("autocorrect", "off");
+    text.setAttribute("autocapitalize", "off");
+    text.setAttribute("spellcheck", false);
 
     text.style.opacity = "0";
-    if (useragent.isOldIE) text.style.top = "-100px";
+    if (useragent.isOldIE) text.style.top = "-1000px";
     parentNode.insertBefore(text, parentNode.firstChild);
 
     var PLACEHOLDER = "\x01\x01";
@@ -75,7 +75,15 @@ var TextInput = function(parentNode, host) {
         host.onFocus(e);
         resetSelection();
     });
-    this.focus = function() { text.focus(); };
+    this.focus = function() {
+        if (tempStyle) return text.focus();
+        text.style.position = "fixed";
+        text.style.top = "-1000px";
+        text.focus();
+        setTimeout(function() {
+            text.style.position = "";
+        }, 0);
+    };
     this.blur = function() { text.blur(); };
     this.isFocused = function() {
         return isFocused;
@@ -95,6 +103,11 @@ var TextInput = function(parentNode, host) {
     function resetSelection(isEmpty) {
         if (inComposition)
             return;
+        
+        // this prevents infinite recursion on safari 8 
+        // see https://github.com/ajaxorg/ace/issues/2114
+        inComposition = true;
+        
         if (inputHandler) {
             selectionStart = 0;
             selectionEnd = isEmpty ? 0 : text.value.length - 1;
@@ -106,6 +119,8 @@ var TextInput = function(parentNode, host) {
         try {
             text.setSelectionRange(selectionStart, selectionEnd);
         } catch(e){}
+        
+        inComposition = false;
     }
 
     function resetValue() {

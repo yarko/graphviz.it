@@ -150,16 +150,18 @@ var Editor = function(renderer, session) {
             args: commadEvent.args,
             scrollTop: this.renderer.scrollTop
         };
-        
-        // this.selections.push(this.selection.toJSON());
+        if (this.curOp.command.name && this.curOp.command.scrollIntoView !== undefined)
+            this.$blockScrolling++;
     };
 
     this.endOperation = function(e) {
         if (this.curOp) {
             if (e && e.returnValue === false)
                 return this.curOp = null;
-                
+            this._signal("beforeEndOperation");
             var command = this.curOp.command;
+            if (command.name && this.$blockScrolling > 0)
+                this.$blockScrolling--;
             if (command && command.scrollIntoView) {
                 switch (command.scrollIntoView) {
                     case "center":
@@ -536,12 +538,18 @@ var Editor = function(renderer, session) {
             var iterator = new TokenIterator(self.session, pos.row, pos.column);
             var token = iterator.getCurrentToken();
             
-            if (!token || token.type.indexOf('tag-name') === -1) {
+            if (!token || !/\b(?:tag-open|tag-name)/.test(token.type)) {
                 session.removeMarker(session.$tagHighlight);
                 session.$tagHighlight = null;
                 return;
             }
-
+            
+            if (token.type.indexOf("tag-open") != -1) {
+                token = iterator.stepForward();
+                if (!token)
+                    return;
+            }
+            
             var tag = token.value;
             var depth = 0;
             var prevToken = iterator.stepBackward();
@@ -714,6 +722,10 @@ var Editor = function(renderer, session) {
         this.$cursorChange();
 
         if (!this.$blockScrolling) {
+            config.warn("Automatically scrolling cursor into view after selection change",
+                "this will be disabled in the next version",
+                "set editor.$blockScrolling = Infinity to disable this message"
+            );
             this.renderer.scrollCursorIntoView();
         }
 
@@ -902,9 +914,28 @@ var Editor = function(renderer, session) {
         // todo this should change when paste becomes a command
         if (this.$readOnly)
             return;
+
         var e = {text: text};
         this._signal("paste", e);
-        this.insert(e.text, true);
+        text = e.text;
+        if (!this.inMultiSelectMode || this.inVirtualSelectionMode) {
+            this.insert(text);
+        } else {
+            var lines = text.split(/\r\n|\r|\n/);
+            var ranges = this.selection.rangeList.ranges;
+    
+            if (lines.length > ranges.length || lines.length < 2 || !lines[1])
+                return this.commands.exec("insertstring", this, text);
+    
+            for (var i = ranges.length; i--;) {
+                var range = ranges[i];
+                if (!range.isEmpty())
+                    this.session.remove(range);
+    
+                this.session.insert(range.start, lines[i]);
+            }
+        }
+        this.renderer.scrollCursorIntoView();
     };
 
     this.execCommand = function(command, args) {
@@ -1260,7 +1291,7 @@ var Editor = function(renderer, session) {
     };
 
     /**
-     * Removes words of text from the editor. A "word" is defined as a string of characters bookended by whitespace.
+     * Removes the current selection or one character.
      * @param {String} dir The direction of the deletion to occur, either "left" or "right"
      *
      **/
@@ -1629,9 +1660,7 @@ var Editor = function(renderer, session) {
      * @related EditSession.moveLinesUp
      **/
     this.moveLinesDown = function() {
-        this.$moveLines(function(firstRow, lastRow) {
-            return this.session.moveLinesDown(firstRow, lastRow);
-        });
+        this.$moveLines(1, false);
     };
 
     /**
@@ -1640,9 +1669,7 @@ var Editor = function(renderer, session) {
      * @related EditSession.moveLinesDown
      **/
     this.moveLinesUp = function() {
-        this.$moveLines(function(firstRow, lastRow) {
-            return this.session.moveLinesUp(firstRow, lastRow);
-        });
+        this.$moveLines(-1, false);
     };
 
     /**
@@ -1666,10 +1693,7 @@ var Editor = function(renderer, session) {
      *
      **/
     this.copyLinesUp = function() {
-        this.$moveLines(function(firstRow, lastRow) {
-            this.session.duplicateLines(firstRow, lastRow);
-            return 0;
-        });
+        this.$moveLines(-1, true);
     };
 
     /**
@@ -1679,51 +1703,61 @@ var Editor = function(renderer, session) {
      *
      **/
     this.copyLinesDown = function() {
-        this.$moveLines(function(firstRow, lastRow) {
-            return this.session.duplicateLines(firstRow, lastRow);
-        });
+        this.$moveLines(1, true);
     };
 
     /**
-     * Executes a specific function, which can be anything that manipulates selected lines, such as copying them, duplicating them, or shifting them.
-     * @param {Function} mover A method to call on each selected row
-     *
+     * for internal use
+     * @ignore
      *
      **/
-    this.$moveLines = function(mover) {
+    this.$moveLines = function(dir, copy) {
+        var rows, moved;
         var selection = this.selection;
         if (!selection.inMultiSelectMode || this.inVirtualSelectionMode) {
             var range = selection.toOrientedRange();
-            var rows = this.$getSelectedRows(range);
-            var linesMoved = mover.call(this, rows.first, rows.last);
-            range.moveBy(linesMoved, 0);
+            rows = this.$getSelectedRows(range);
+            moved = this.session.$moveLines(rows.first, rows.last, copy ? 0 : dir);
+            if (copy && dir == -1) moved = 0;
+            range.moveBy(moved, 0);
             selection.fromOrientedRange(range);
         } else {
             var ranges = selection.rangeList.ranges;
             selection.rangeList.detach(this.session);
-
-            for (var i = ranges.length; i--; ) {
+            this.inVirtualSelectionMode = true;
+            
+            var diff = 0;
+            var totalDiff = 0;
+            var l = ranges.length;
+            for (var i = 0; i < l; i++) {
                 var rangeIndex = i;
-                var rows = ranges[i].collapseRows();
-                var last = rows.end.row;
-                var first = rows.start.row;
-                while (i--) {
-                    rows = ranges[i].collapseRows();
-                    if (first - rows.end.row <= 1)
-                        first = rows.end.row;
-                    else
+                ranges[i].moveBy(diff, 0);
+                rows = this.$getSelectedRows(ranges[i]);
+                var first = rows.first;
+                var last = rows.last;
+                while (++i < l) {
+                    if (totalDiff) ranges[i].moveBy(totalDiff, 0);
+                    var subRows = this.$getSelectedRows(ranges[i]);
+                    if (copy && subRows.first != last)
                         break;
+                    else if (!copy && subRows.first > last + 1)
+                        break;
+                    last = subRows.last;
                 }
-                i++;
-
-                var linesMoved = mover.call(this, first, last);
-                while (rangeIndex >= i) {
-                    ranges[rangeIndex].moveBy(linesMoved, 0);
-                    rangeIndex--;
+                i--;
+                diff = this.session.$moveLines(first, last, copy ? 0 : dir);
+                if (copy && dir == -1) rangeIndex = i + 1;
+                while (rangeIndex <= i) {
+                    ranges[rangeIndex].moveBy(diff, 0);
+                    rangeIndex++;
                 }
+                if (!copy) diff = 0;
+                totalDiff += diff;
             }
+            
             selection.fromOrientedRange(selection.ranges[0]);
             selection.rangeList.attach(this.session);
+            this.inVirtualSelectionMode = false;
         }
     };
 
@@ -1736,8 +1770,8 @@ var Editor = function(renderer, session) {
      *
      * @returns {Object}
      **/
-    this.$getSelectedRows = function() {
-        var range = this.getSelectionRange().collapseRows();
+    this.$getSelectedRows = function(range) {
+        range = (range || this.getSelectionRange()).collapseRows();
 
         return {
             first: this.session.getRowFoldStart(range.start.row),
